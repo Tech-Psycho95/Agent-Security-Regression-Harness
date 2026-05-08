@@ -1,6 +1,8 @@
 # MCP Adapter Design
 
-Status: design proposal for a future implementation.
+Status: design basis for MCP adapter work. An MVP workflow adapter now exists
+in `src/agent_harness/mcp_adapter.py`; fuller MCP host/runtime support remains
+future work.
 
 This document defines the design constraints for a native Model Context
 Protocol (MCP) adapter before adding code. MCP is not just another
@@ -20,11 +22,10 @@ its trace model.
 - Keep the harness assertion engine independent of MCP SDK objects.
 - Keep MCP dependencies optional through the existing `mcp` extra.
 
-## Non-goals
+## MVP Non-goals
 
-- Do not implement the MCP adapter in this change.
-- Do not make the harness a general-purpose MCP host.
-- Do not add a new assertion language in the first adapter implementation.
+- Do not make the harness a general-purpose MCP host yet.
+- Do not add a new assertion language in the MVP adapter implementation.
 - Do not require external MCP servers or network access in tests.
 - Do not treat MCP tool annotations or server-provided metadata as proof of
   safety.

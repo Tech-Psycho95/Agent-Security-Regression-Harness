@@ -85,6 +85,28 @@ The harness currently recognizes tool names from these fields, in order:
 
 A tool call should use `name` unless an adapter is translating from a framework that already uses a different field.
 
+### MCP tool calls
+
+MCP tool names are only unique within an MCP server, so MCP adapters should use
+a canonical source-qualified tool name:
+
+```json
+{
+  "name": "mcp/filesystem_fixture/delete_file",
+  "arguments": {
+    "path": "notes.txt"
+  },
+  "mcp_server_id": "filesystem_fixture",
+  "mcp_tool_name": "delete_file",
+  "mcp_method": "tools/call",
+  "trust": "untrusted",
+  "mcp_transport": "stdio"
+}
+```
+
+Scenarios that deny MCP tools should use the canonical `mcp/<server_id>/<tool>`
+name in `expected.denied_tools`.
+
 ## Events
 
 `events` records structured runtime facts that are not plain messages or tool calls.

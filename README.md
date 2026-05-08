@@ -39,7 +39,10 @@ The current CLI supports:
 2. Emitting dry-run result JSON
 3. Evaluating assertions against pre-recorded trace JSON
 4. Running scenarios against a live HTTP target
-5. Emitting machine-readable result JSON
+5. Running scenarios against local Python callable targets
+6. Running scenarios against OpenAI Agents SDK targets
+7. Running scenarios against local MCP workflow targets
+8. Emitting machine-readable result JSON
 
 Currently implemented assertions:
 
@@ -403,14 +406,17 @@ Currently supported:
 - Dry-run output
 - Trace-file based assertion evaluation
 - Live HTTP target execution
+- Python callable target execution
+- OpenAI Agents SDK target execution
+- MVP MCP workflow target execution
 - JSON result output
 - `no_denied_tool_call` assertion
 - `goal_integrity` assertion
 
 Not implemented yet:
 
-- Native framework adapters
-- MCP-specific live runtime adapter
+- Full MCP host/runtime adapter support
+- LangChain/LangGraph adapters
 - Full assertion library
 - Secret disclosure detection
 - JUnit output

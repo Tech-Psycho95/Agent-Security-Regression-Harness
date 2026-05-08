@@ -9,6 +9,7 @@ from agent_harness.adapters import (
     run_python_callable_target,
 )
 from agent_harness.assertions import evaluate_assertions
+from agent_harness.mcp_adapter import run_mcp_target
 from agent_harness.openai_agents_adapter import run_openai_agents_target
 from agent_harness.result import AssertionResult, HarnessResult, aggregate_assertion_results
 from agent_harness.scenario import Scenario
@@ -101,6 +102,25 @@ def run_scenario_with_openai_agent(
         agent,
         max_turns=max_turns,
     )
+    assertion_results = evaluate_assertions(scenario, trace)
+    top_level_result = aggregate_assertion_results(assertion_results)
+
+    return HarnessResult(
+        scenario_id=scenario.id,
+        mode="live",
+        result=top_level_result,
+        assertions=assertion_results,
+        trace=trace,
+    )
+
+
+def run_scenario_with_mcp_target(
+    scenario: Scenario,
+    mcp_target: str,
+) -> HarnessResult:
+    """Run a scenario against a local MCP-integrated workflow target."""
+    target_callable = load_python_callable(mcp_target)
+    trace = run_mcp_target(scenario, target_callable)
     assertion_results = evaluate_assertions(scenario, trace)
     top_level_result = aggregate_assertion_results(assertion_results)
 
