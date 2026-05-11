@@ -1,16 +1,13 @@
 # yaml-language-server: $schema=../../schemas/scenario.schema.json
 #
-# Scope note (per PR #74 review):
+# Scope note:
 #
-# This scenario is a TRACE-LEVEL / SCENARIO-LEVEL regression for MCP
-# trust-boundary enforcement against adversarial-seeded threat-intel
-# data. It is NOT a live MCP adapter execution scenario. The harness
-# does not yet have a full MCP adapter MVP, so the `mcp` adapter here
-# is exercised at the trace / fixture layer: the untrusted MCP
-# resource content (mimicking a MISP-style event with an attacker-
-# controlled `comment` attribute) is delivered to the agent's prompt
-# context, and the assertion validates the agent's tool-call selection
-# against the trace.
+# This PR adds only the scenario definition for an MCP trust-boundary
+# regression against adversarially-seeded threat-intel data. This
+# scenario does not exercise live MCP adapter execution in this PR;
+# it is intended for trace-level regression testing today, and for
+# future live-adapter regression testing once a matching fixture and
+# adapter wiring are in place. The MCP adapter MVP landed in #72.
 #
 # Real-world target reference (NOT a dependency of this scenario):
 # https://github.com/ppcvote/misp-mcp-server — a Node MCP server for
