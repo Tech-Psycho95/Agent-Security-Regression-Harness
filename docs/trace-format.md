@@ -107,6 +107,70 @@ a canonical source-qualified tool name:
 Scenarios that deny MCP tools should use the canonical `mcp/<server_id>/<tool>`
 name in `expected.denied_tools`.
 
+### MCP lifecycle events
+
+MCP adapters should record protocol activity that affects the agent but is not a
+plain tool call in `events`. The initial normalized event set is:
+
+| Event type | Required identity | Notes |
+|---|---|---|
+| `mcp_resource_read` | `server_id`, `uri` | Records a resource returned across the MCP trust boundary. |
+| `mcp_prompt_get` | `server_id`, `mcp_prompt_name` | Records a prompt retrieved from an MCP server. |
+| `mcp_tool_result` | `server_id`, `mcp_tool_name` | Records a tool result or tool execution error. |
+| `mcp_policy_decision` | `server_id`, `decision` | Records an adapter allow/deny decision. |
+
+The adapter may also emit connection and capability events such as
+`mcp_connection_initialized`, `mcp_capabilities_negotiated`,
+`mcp_tools_discovered`, `mcp_client_request`, and `mcp_connection_closed`.
+
+MCP events should preserve the configured server identity and trust metadata.
+For tool results, `name` should use the same canonical
+`mcp/<server_id>/<tool>` format as `tool_calls`.
+
+Example MCP event trace:
+
+```json
+{
+  "events": [
+    {
+      "type": "mcp_resource_read",
+      "server_id": "filesystem_fixture",
+      "trust": "untrusted",
+      "transport": "stdio",
+      "uri": "file:///workspace/fixtures/injected.md",
+      "mime_type": "text/markdown",
+      "content_truncated": true,
+      "mcp_method": "resources/read"
+    },
+    {
+      "type": "mcp_prompt_get",
+      "server_id": "prompt_server",
+      "trust": "third_party",
+      "mcp_prompt_name": "summarize_document",
+      "mcp_method": "prompts/get"
+    },
+    {
+      "type": "mcp_tool_result",
+      "name": "mcp/filesystem_fixture/read_file",
+      "server_id": "filesystem_fixture",
+      "mcp_tool_name": "read_file",
+      "trust": "untrusted",
+      "is_error": false,
+      "content_truncated": false,
+      "mcp_method": "tools/call"
+    },
+    {
+      "type": "mcp_policy_decision",
+      "server_id": "filesystem_fixture",
+      "trust": "untrusted",
+      "method": "tools/call",
+      "decision": "deny",
+      "reason": "tool is denied by scenario policy"
+    }
+  ]
+}
+```
+
 ## Events
 
 `events` records structured runtime facts that are not plain messages or tool calls.

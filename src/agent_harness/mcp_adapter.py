@@ -19,9 +19,31 @@ from agent_harness.trace import Trace, TraceValidationError
 
 MCP_ADAPTER_ID = "mcp"
 MCP_TOOL_NAME_PREFIX = "mcp"
+MCP_RESOURCES_READ_METHOD = "resources/read"
+MCP_PROMPTS_GET_METHOD = "prompts/get"
 MCP_TOOLS_CALL_METHOD = "tools/call"
 
 MCPWorkflowTarget = Callable[[dict[str, Any]], Trace | dict[str, Any]]
+
+MCP_EVENT_TYPES = frozenset(
+    {
+        "mcp_connection_initialized",
+        "mcp_capabilities_negotiated",
+        "mcp_tools_discovered",
+        "mcp_resource_read",
+        "mcp_prompt_get",
+        "mcp_tool_result",
+        "mcp_client_request",
+        "mcp_policy_decision",
+        "mcp_connection_closed",
+    }
+)
+MCP_EVENT_DEFAULT_METHODS = {
+    "mcp_resource_read": MCP_RESOURCES_READ_METHOD,
+    "mcp_prompt_get": MCP_PROMPTS_GET_METHOD,
+    "mcp_tool_result": MCP_TOOLS_CALL_METHOD,
+}
+MCP_SERVER_SCOPED_EVENT_TYPES = MCP_EVENT_TYPES
 
 
 def build_mcp_input(scenario: Scenario) -> dict[str, Any]:
@@ -87,6 +109,118 @@ def translate_mcp_tool_call(
 
     translated.update(_source_metadata(call, registry.get(server_id, {})))
     return translated
+
+
+def normalize_mcp_event(
+    event: dict[str, Any],
+    *,
+    server_registry: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Normalize one MCP lifecycle observation into a harness trace event."""
+    if not isinstance(event, dict):
+        raise AdapterError("MCP event must be an object")
+
+    event_type = _required_string(
+        event.get("type") or event.get("mcp_event_type"),
+        "MCP event type",
+    )
+
+    if event_type not in MCP_EVENT_TYPES:
+        raise AdapterError(f"Unsupported MCP event type: {event_type}")
+
+    registry = server_registry or {}
+    params = event.get("params", {})
+    if params is None:
+        params = {}
+    if not isinstance(params, dict):
+        raise AdapterError("MCP event params must be an object when provided")
+
+    server_id = _extract_server_id(event)
+    tool_name = None
+
+    if event_type == "mcp_tool_result":
+        tool_name = _extract_tool_name(event, params)
+        if tool_name.startswith(f"{MCP_TOOL_NAME_PREFIX}/"):
+            canonical_server_id, tool_name = _split_canonical_tool_name(tool_name)
+            if server_id is None:
+                server_id = canonical_server_id
+            elif _normalize_name_part(server_id, "MCP server id") != canonical_server_id:
+                raise AdapterError(
+                    "MCP tool result canonical name does not match server_id"
+                )
+
+    if event_type in MCP_SERVER_SCOPED_EVENT_TYPES:
+        if server_id is None:
+            raise AdapterError(f"{event_type} event is missing server_id")
+        server_id = _normalize_name_part(server_id, "MCP server id")
+
+    normalized = deepcopy(event)
+    normalized["type"] = event_type
+    normalized.pop("mcp_event_type", None)
+
+    if server_id is not None:
+        normalized["server_id"] = server_id
+        normalized.pop("mcp_server_id", None)
+        _add_event_source_metadata(normalized, event, registry.get(server_id, {}))
+
+    if event_type == "mcp_resource_read":
+        normalized["uri"] = _required_string(
+            event.get("uri") or event.get("resource_uri"),
+            "MCP resource URI",
+        )
+        normalized["mcp_method"] = _optional_string(
+            event.get("mcp_method") or event.get("method"),
+            default=MCP_EVENT_DEFAULT_METHODS[event_type],
+        )
+    elif event_type == "mcp_prompt_get":
+        prompt_name = (
+            event.get("mcp_prompt_name")
+            or event.get("prompt_name")
+            or params.get("name")
+            or event.get("name")
+        )
+        normalized["mcp_prompt_name"] = _normalize_name_part(
+            prompt_name,
+            "MCP prompt name",
+        )
+        normalized["mcp_method"] = _optional_string(
+            event.get("mcp_method") or event.get("method"),
+            default=MCP_EVENT_DEFAULT_METHODS[event_type],
+        )
+    elif event_type == "mcp_tool_result":
+        assert tool_name is not None
+        tool_name = _normalize_name_part(tool_name, "MCP tool name")
+        normalized["mcp_tool_name"] = tool_name
+        normalized["name"] = canonical_mcp_tool_name(server_id, tool_name)
+        normalized["mcp_method"] = _optional_string(
+            event.get("mcp_method") or event.get("method"),
+            default=MCP_EVENT_DEFAULT_METHODS[event_type],
+        )
+    elif event_type == "mcp_policy_decision":
+        normalized["decision"] = _required_string(
+            event.get("decision"),
+            "MCP policy decision",
+        )
+
+    return normalized
+
+
+def normalize_mcp_events(
+    events: Any,
+    *,
+    server_registry: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize MCP lifecycle observations from an MCP workflow result."""
+    if events is None:
+        return []
+
+    if not isinstance(events, list):
+        raise AdapterError("MCP workflow field mcp_events must be a list")
+
+    return [
+        normalize_mcp_event(event, server_registry=server_registry)
+        for event in events
+    ]
 
 
 def mcp_workflow_result_to_trace(
@@ -155,6 +289,12 @@ def mcp_workflow_result_to_trace(
             "id": scenario.id,
         },
     ]
+    events.extend(
+        normalize_mcp_events(
+            result.get("mcp_events", []),
+            server_registry=server_registry,
+        )
+    )
     events.extend(_normalize_events(result.get("events", [])))
 
     return _trace_from_dict(
@@ -204,6 +344,13 @@ def _optional_string(value: Any, *, default: str) -> str:
 
     if not isinstance(value, str) or not value.strip():
         raise AdapterError("MCP method must be a non-empty string")
+
+    return value.strip()
+
+
+def _required_string(value: Any, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise AdapterError(f"{field_name} must be a non-empty string")
 
     return value.strip()
 
@@ -313,6 +460,52 @@ def _source_metadata(
     return metadata
 
 
+def _add_event_source_metadata(
+    event: dict[str, Any],
+    raw_event: dict[str, Any],
+    registered_server: dict[str, Any],
+) -> None:
+    server = raw_event.get("server")
+    if not isinstance(server, dict):
+        server = {}
+
+    field_map = {
+        "trust": (("trust",), ("trust",)),
+        "transport": (
+            ("transport", "mcp_transport"),
+            ("transport", "mcp_transport"),
+        ),
+        "server_name": (
+            ("server_name", "mcp_server_name"),
+            ("server_name", "mcp_server_name", "name"),
+        ),
+        "server_title": (
+            ("server_title", "mcp_server_title"),
+            ("server_title", "mcp_server_title", "title"),
+        ),
+        "server_version": (
+            ("server_version", "mcp_server_version"),
+            ("server_version", "mcp_server_version", "version"),
+        ),
+        "protocol_version": (
+            ("protocol_version",),
+            ("protocol_version",),
+        ),
+    }
+
+    for output_field, (event_fields, server_fields) in field_map.items():
+        if output_field in event:
+            continue
+
+        value = (
+            _first_present(raw_event, event_fields)
+            or _first_present(server, server_fields)
+            or _first_present(registered_server, server_fields)
+        )
+        if isinstance(value, str) and value.strip():
+            event[output_field] = value.strip()
+
+
 def _first_present(
     source: dict[str, Any],
     fields: tuple[str, ...],
@@ -390,7 +583,13 @@ def _stringify_content(value: Any) -> str:
 
 
 def _is_plain_trace_result(result: dict[str, Any]) -> bool:
-    mcp_fields = {"mcp_tool_calls", "mcp_servers", "assistant_message", "final_output"}
+    mcp_fields = {
+        "mcp_tool_calls",
+        "mcp_events",
+        "mcp_servers",
+        "assistant_message",
+        "final_output",
+    }
 
     if set(result).isdisjoint(mcp_fields):
         return {"messages", "tool_calls", "events"} <= set(result)

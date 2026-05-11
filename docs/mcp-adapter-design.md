@@ -242,6 +242,23 @@ Example resource event:
 }
 ```
 
+MVP workflow results may supply these observations through a top-level
+`mcp_events` list. The adapter normalizes the first reviewable event set:
+
+- `mcp_resource_read`: requires `server_id` and `uri`, and defaults
+  `mcp_method` to `resources/read`.
+- `mcp_prompt_get`: requires `server_id` and a prompt name from
+  `mcp_prompt_name`, `prompt_name`, `params.name`, or `name`, and defaults
+  `mcp_method` to `prompts/get`.
+- `mcp_tool_result`: requires `server_id` plus a tool name, or a canonical
+  `name` such as `mcp/filesystem_fixture/read_file`; the normalized event
+  includes `mcp_tool_name`, canonical `name`, and `mcp_method: tools/call`.
+- `mcp_policy_decision`: requires `server_id` and `decision`.
+
+For every server-scoped MCP event, the adapter adds known `trust`, `transport`,
+server identity, and protocol-version metadata from the matching `mcp_servers`
+entry when the event does not already provide it.
+
 The adapter should avoid dumping large binary payloads into traces by default.
 It may record content type, URI, byte length, hashes, short text excerpts, and a
 `content_truncated` flag. Redaction rules should be configurable before

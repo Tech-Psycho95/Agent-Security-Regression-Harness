@@ -11,6 +11,8 @@ from agent_harness.mcp_adapter import (
     build_mcp_input,
     canonical_mcp_tool_name,
     mcp_workflow_result_to_trace,
+    normalize_mcp_event,
+    normalize_mcp_events,
     run_mcp_target,
     translate_mcp_tool_call,
 )
@@ -197,6 +199,121 @@ def test_translate_mcp_tool_call_requires_tool_name():
         )
 
 
+def test_normalize_mcp_resource_read_event_adds_server_metadata():
+    event = normalize_mcp_event(
+        {
+            "type": "mcp_resource_read",
+            "server_id": "filesystem_fixture",
+            "uri": "file:///workspace/fixtures/injected.md",
+            "mime_type": "text/markdown",
+            "content_truncated": True,
+        },
+        server_registry={
+            "filesystem_fixture": {
+                "trust": "untrusted",
+                "transport": "stdio",
+                "server_name": "fixture-filesystem",
+            }
+        },
+    )
+
+    assert event == {
+        "type": "mcp_resource_read",
+        "server_id": "filesystem_fixture",
+        "uri": "file:///workspace/fixtures/injected.md",
+        "mime_type": "text/markdown",
+        "content_truncated": True,
+        "trust": "untrusted",
+        "transport": "stdio",
+        "server_name": "fixture-filesystem",
+        "mcp_method": "resources/read",
+    }
+
+
+def test_normalize_mcp_prompt_get_event_preserves_prompt_name():
+    event = normalize_mcp_event(
+        {
+            "type": "mcp_prompt_get",
+            "mcp_server_id": "prompt_server",
+            "name": "summarize_document",
+            "params": {"arguments": {"style": "short"}},
+            "server": {"trust": "third_party"},
+        }
+    )
+
+    assert event["type"] == "mcp_prompt_get"
+    assert event["server_id"] == "prompt_server"
+    assert "mcp_server_id" not in event
+    assert event["mcp_prompt_name"] == "summarize_document"
+    assert event["mcp_method"] == "prompts/get"
+    assert event["trust"] == "third_party"
+    assert event["params"] == {"arguments": {"style": "short"}}
+
+
+def test_normalize_mcp_tool_result_event_parses_canonical_name():
+    event = normalize_mcp_event(
+        {
+            "type": "mcp_tool_result",
+            "name": "mcp/filesystem_fixture/read_file",
+            "is_error": False,
+            "content_truncated": False,
+        },
+        server_registry={"filesystem_fixture": {"trust": "untrusted"}},
+    )
+
+    assert event == {
+        "type": "mcp_tool_result",
+        "name": "mcp/filesystem_fixture/read_file",
+        "is_error": False,
+        "content_truncated": False,
+        "server_id": "filesystem_fixture",
+        "trust": "untrusted",
+        "mcp_tool_name": "read_file",
+        "mcp_method": "tools/call",
+    }
+
+
+def test_normalize_mcp_tool_result_rejects_conflicting_canonical_server_id():
+    with pytest.raises(AdapterError, match="canonical name does not match"):
+        normalize_mcp_event(
+            {
+                "type": "mcp_tool_result",
+                "server_id": "github_prod",
+                "name": "mcp/filesystem_fixture/read_file",
+            }
+        )
+
+
+def test_normalize_mcp_policy_decision_event_requires_decision():
+    event = normalize_mcp_event(
+        {
+            "type": "mcp_policy_decision",
+            "server_id": "untrusted_retrieval",
+            "method": "sampling/createMessage",
+            "decision": "deny",
+            "reason": "sampling is disabled for this server",
+        }
+    )
+
+    assert event["server_id"] == "untrusted_retrieval"
+    assert event["method"] == "sampling/createMessage"
+    assert event["decision"] == "deny"
+    assert event["reason"] == "sampling is disabled for this server"
+
+    with pytest.raises(AdapterError, match="MCP policy decision"):
+        normalize_mcp_event(
+            {
+                "type": "mcp_policy_decision",
+                "server_id": "untrusted_retrieval",
+            }
+        )
+
+
+def test_normalize_mcp_events_rejects_non_list():
+    with pytest.raises(AdapterError, match="mcp_events must be a list"):
+        normalize_mcp_events({"type": "mcp_resource_read"})
+
+
 def test_mcp_workflow_result_to_trace_translates_mcp_tool_calls():
     scenario = make_mcp_scenario()
 
@@ -263,6 +380,84 @@ def test_mcp_workflow_result_to_trace_translates_mcp_tool_calls():
             "type": "mcp_policy_decision",
             "id": "tool_allowed",
             "server_id": "filesystem_fixture",
+        },
+    ]
+
+
+def test_mcp_workflow_result_to_trace_normalizes_mcp_events():
+    scenario = make_mcp_scenario()
+
+    trace = mcp_workflow_result_to_trace(
+        scenario,
+        {
+            "mcp_servers": [
+                {
+                    "id": "filesystem_fixture",
+                    "trust": "untrusted",
+                    "transport": "stdio",
+                }
+            ],
+            "mcp_events": [
+                {
+                    "type": "mcp_resource_read",
+                    "server_id": "filesystem_fixture",
+                    "uri": "file:///workspace/fixtures/injected.md",
+                    "mime_type": "text/markdown",
+                    "content_truncated": True,
+                },
+                {
+                    "type": "mcp_tool_result",
+                    "server_id": "filesystem_fixture",
+                    "tool_name": "read_file",
+                    "is_error": False,
+                },
+                {
+                    "type": "mcp_policy_decision",
+                    "server_id": "filesystem_fixture",
+                    "method": "tools/call",
+                    "decision": "allow",
+                },
+            ],
+        },
+    )
+
+    assert trace.events == [
+        {
+            "type": "adapter",
+            "id": "mcp",
+        },
+        {
+            "type": "scenario",
+            "id": scenario.id,
+        },
+        {
+            "type": "mcp_resource_read",
+            "server_id": "filesystem_fixture",
+            "uri": "file:///workspace/fixtures/injected.md",
+            "mime_type": "text/markdown",
+            "content_truncated": True,
+            "trust": "untrusted",
+            "transport": "stdio",
+            "mcp_method": "resources/read",
+        },
+        {
+            "type": "mcp_tool_result",
+            "server_id": "filesystem_fixture",
+            "tool_name": "read_file",
+            "is_error": False,
+            "trust": "untrusted",
+            "transport": "stdio",
+            "mcp_tool_name": "read_file",
+            "name": "mcp/filesystem_fixture/read_file",
+            "mcp_method": "tools/call",
+        },
+        {
+            "type": "mcp_policy_decision",
+            "server_id": "filesystem_fixture",
+            "method": "tools/call",
+            "decision": "allow",
+            "trust": "untrusted",
+            "transport": "stdio",
         },
     ]
 
