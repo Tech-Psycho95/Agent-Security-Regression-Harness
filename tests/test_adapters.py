@@ -126,6 +126,23 @@ def test_python_callable_wraps_invalid_trace_shape():
         run_python_callable_target(scenario, malformed_agent)
 
 
+def test_python_callable_wraps_invalid_trace_item_shape():
+    scenario = make_scenario(assertions=[])
+
+    def malformed_agent(payload):
+        return {
+            "messages": ["not an object"],
+            "tool_calls": [],
+            "events": [],
+        }
+
+    with pytest.raises(
+        AdapterError,
+        match=r"Python callable returned invalid trace: messages\[0\] must be an object",
+    ):
+        run_python_callable_target(scenario, malformed_agent)
+
+
 def test_load_python_callable_loads_valid_module_function(tmp_path, monkeypatch):
     module_name = write_fake_target_module(tmp_path, monkeypatch)
 

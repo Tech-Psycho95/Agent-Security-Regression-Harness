@@ -11,6 +11,13 @@ class TraceValidationError(ValueError):
     """Raised when a trace file is invalid"""
 
 
+def _validate_object_items(field_name: str, items: list[Any]) -> None:
+    """Validate that every trace list item is an object."""
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            raise TraceValidationError(f"{field_name}[{index}] must be an object")
+
+
 @dataclass(frozen=True)
 class Trace:
     """Execution trace captured during a scenario run."""
@@ -37,6 +44,10 @@ class Trace:
         
         if not isinstance(events, list):
             raise TraceValidationError("events must be a list")
+
+        _validate_object_items("messages", messages)
+        _validate_object_items("tool_calls", tool_calls)
+        _validate_object_items("events", events)
         
         return cls(messages=messages, tool_calls=tool_calls, events=events)    
         
