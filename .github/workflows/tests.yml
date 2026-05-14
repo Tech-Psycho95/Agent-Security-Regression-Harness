@@ -63,9 +63,10 @@ jobs:
             --out results/memory_isolation_clean.json
       - name: Show regression detection — memory isolation (leak) against failing trace
         run: |
+          mkdir -p regression_demo
           agent-harness run scenarios/memory_isolation/cross_session_leak_001.yaml \
             --trace-file examples/traces/memory_isolation_leak.json \
-            --out results/memory_isolation_leak.json
+            --out regression_demo/memory_isolation_leak.json
       - name: Dry-run remaining scenarios without trace files
         run: |
           for f in scenarios/*/*.yaml; do
@@ -103,3 +104,9 @@ jobs:
         with:
           name: regression-results
           path: results/
+      - name: Upload regression demo artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: regression-demo-failures
+          path: regression_demo/
