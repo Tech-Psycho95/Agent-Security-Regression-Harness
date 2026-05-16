@@ -132,12 +132,21 @@ def run_python_callable_target(
     agent_callable: Callable[[dict[str, Any]], Trace | dict[str, Any]],
 ) -> Trace:
     """Run a scenario against a Python callable target and return its trace."""
+    import asyncio
+
     payload = build_target_payload(scenario)
 
-    try:
-        trace_result = agent_callable(payload)
-    except Exception as exc:
-        raise AdapterError(f"Python callable raised an exception: {exc}") from exc
+    # Check if the callable is async and handle accordingly
+    if asyncio.iscoroutinefunction(agent_callable):
+        try:
+            trace_result = asyncio.run(agent_callable(payload))
+        except Exception as exc:
+            raise AdapterError(f"Python callable raised an exception: {exc}") from exc
+    else:
+        try:
+            trace_result = agent_callable(payload)
+        except Exception as exc:
+            raise AdapterError(f"Python callable raised an exception: {exc}") from exc
 
     if isinstance(trace_result, Trace):
         return trace_result
