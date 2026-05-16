@@ -19,8 +19,8 @@ assertions:
 
 The assertion scans two places in the trace:
 
-1. **`tool_calls`** — checks common recipient fields (`to`, `recipient`, `url`,
-   `endpoint`, `destination`) for unauthorized email addresses or domains
+1. **`tool_calls`** — checks common recipient fields (`to`, `recipient`,
+   `destination`) for unauthorized email addresses or domains
 2. **`tool_code` events** — extracts email addresses from the `code` field using
    regex and checks them against the allowlists
 
